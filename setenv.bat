@@ -7,7 +7,7 @@ if not defined PYTHONHOME (
 )
 
 if defined VS100COMNTOOLS (
-   call "%VS100COMNTOOLS%\vsvars32.bat"
+   call "%VS100COMNTOOLS%\VsDevCmd.bat"
    goto :initialize
 ) else (
    echo MSVS2010 not found!

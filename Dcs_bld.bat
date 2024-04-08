@@ -2,7 +2,7 @@ pushd "%~dp0"
 
 set dcsarch=X64
 set dcstype=DEBUG
-set dcsbldtoolset=VS2010x86
+set dcsbldtoolset=VS2015
 set dcspkgpath="%~dp0DcsPkg.dsc"
 
 if /I NOT  ["%1"]==["X64Rel"] goto :IA32
