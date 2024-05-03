@@ -36,6 +36,8 @@ https://opensource.org/licenses/LGPL-3.0
 #include "DcsVeraCrypt.h"
 #include <Guid/EventGroup.h>
 
+#include "DcsInt2FA.h"
+
 // #define TRC_HANDLE_PATH(msg,h)                     \
 //                   OUT_PRINT(msg);                  \
 //                   EfiPrintDevicePath(h);           \
@@ -688,6 +690,7 @@ SecRegionTryDecrypt()
 
 	do {
 		SecRegionOffset = 0;
+        OUT_PRINT(L"THIS IS A TEST\n");
 		VCAuthAsk();
 		if (gAuthPwdCode == AskPwdRetCancel) {
 			return EFI_DCS_USER_CANCELED;
@@ -707,7 +710,7 @@ SecRegionTryDecrypt()
 			}
 			// Try authorize zone
 			CopyMem(Header, SecRegionData + SecRegionOffset, 512);
-			vcres = ReadVolumeHeader(gAuthBoot, Header, &gAuthPassword, gAuthHash, gAuthPim, gAuthTc, &SecRegionCryptInfo, NULL);
+			vcres = ReadVolumeHeader(gAuthBoot, Header, &gAuthPassword, gAuthHash, gAuthPim, &SecRegionCryptInfo, NULL);
 		   SecRegionOffset += (vcres != 0) ? 1024 * 128 : 0;
 		} while (SecRegionOffset < SecRegionSize && vcres != 0);
 		if (vcres == 0) {
@@ -1096,6 +1099,8 @@ UefiMain(
 	InitBio();
 	InitFS();
 
+    // VCRegisterImageHandle(ImageHandle);
+
 	// Remove BootNext to restore boot order
 	BootMenuItemRemove(L"BootNext");
 
@@ -1190,6 +1195,10 @@ UefiMain(
 	}
 
 	DetectX86Features();
+
+    VC2FAInit(ImageHandle, SystemTable->BootServices);
+    VCAuth2FASampleRequest();
+
 	res = SecRegionTryDecrypt();
 	if (gTpm != NULL) {
 		gTpm->Lock(gTpm);
