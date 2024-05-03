@@ -115,7 +115,7 @@ TryHeaderDecrypt(
 		&gAuthPassword,
 		gAuthHash,
 		gAuthPim,
-		gAuthTc,
+		/* gAuthTc, */
 		&cryptoInfo,
 		headerCryptoInfo);
 
@@ -426,7 +426,7 @@ RangeCrypt(
 	UINTN                   rd;
 	BOOL                    bIsSystemEncyption = FALSE;
 
-	if (info->noIterations == get_pkcs5_iteration_count (info->pkcs5, info->volumePim, FALSE, TRUE))
+	if (info->noIterations == get_pkcs5_iteration_count (info->pkcs5, info->volumePim, /* FALSE, */ TRUE))
 		bIsSystemEncyption = TRUE;
 
 	io = EfiGetBlockIO(disk);
