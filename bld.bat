@@ -3,5 +3,5 @@ if not defined WORKSPACE (
    goto :eof
 )
 pushd %WORKSPACE%
-build %*
+%PYTHONHOME%\python %EDK_PREFIX%\BaseTools\Source\Python\build\build.py %*
 popd
