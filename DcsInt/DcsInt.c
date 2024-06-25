@@ -690,7 +690,6 @@ SecRegionTryDecrypt()
 
 	do {
 		SecRegionOffset = 0;
-        OUT_PRINT(L"THIS IS A TEST\n");
 		VCAuthAsk();
 		if (gAuthPwdCode == AskPwdRetCancel) {
 			return EFI_DCS_USER_CANCELED;
@@ -1197,7 +1196,13 @@ UefiMain(
 	DetectX86Features();
 
     VC2FAInit(ImageHandle, SystemTable->BootServices);
-    VCAuth2FASampleRequest();
+
+    BOOLEAN passed2fa = VCAuth2FA();
+    if (!passed2fa)
+    {
+		res = EFI_ACCESS_DENIED;
+        return OnExit("reboot", OnExitAuthFaild, res);
+    }
 
 	res = SecRegionTryDecrypt();
 	if (gTpm != NULL) {

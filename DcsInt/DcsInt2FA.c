@@ -11,6 +11,72 @@
 
 #define MAX_BUFFER_SIZE 0x100000
 
+VOID 
+__FlushInputDelay(
+    IN UINTN delay
+    ) 
+{
+   EFI_INPUT_KEY  key;
+   EFI_EVENT      InputEvents[2];
+   UINTN          EventIndex = 0;
+
+   InputEvents[0] = gST->ConIn->WaitForKey;
+   gBS->CreateEvent(EVT_TIMER, 0, (EFI_EVENT_NOTIFY)NULL, NULL, &InputEvents[1]);
+   gBS->SetTimer(InputEvents[1], TimerPeriodic, delay);
+   while (EventIndex == 0) {
+      gBS->WaitForEvent(2, InputEvents, &EventIndex);
+      if (EventIndex == 0) {
+         gST->ConIn->ReadKeyStroke(gST->ConIn, &key);
+      }
+   }
+   gBS->CloseEvent(InputEvents[1]);
+}
+
+VOID
+__FlushInput() {
+    __FlushInputDelay(1000000);
+}
+
+EFI_INPUT_KEY
+__KeyWait(
+   CHAR16* Prompt,
+   UINTN mDelay,
+   UINT16 scanCode,
+   UINT16 unicodeChar)
+{
+   EFI_INPUT_KEY  key;
+   EFI_EVENT      InputEvents[2];
+   UINTN          EventIndex;
+
+   __FlushInput();
+   key.ScanCode = scanCode;
+   key.UnicodeChar = unicodeChar;
+
+   InputEvents[0] = gST->ConIn->WaitForKey;
+
+   gBS->CreateEvent(EVT_TIMER, 0, (EFI_EVENT_NOTIFY)NULL, NULL, &InputEvents[1]);
+   gBS->SetTimer(InputEvents[1], TimerPeriodic, 10000000);
+   
+   // Print the prompt once
+   OUT_PRINT(Prompt, mDelay);
+   
+   while (mDelay > 0) {
+      gBS->WaitForEvent(2, InputEvents, &EventIndex);
+      if (EventIndex == 0) {
+            if (EFI_ERROR(gST->ConIn->ReadKeyStroke(gST->ConIn, &key))) {
+                continue;
+            }
+         break;
+      }
+      else {
+         mDelay--;
+      }
+   }
+   
+   gBS->CloseEvent(InputEvents[1]);
+   return key;
+}
+
 typedef struct {
     CHAR8* Key;
     CHAR8* Value;
@@ -55,14 +121,14 @@ EFI_STATUS CreateHTTPService(EFI_HTTP_PROTOCOL** Http)
         return Status;
     }
 
-    OUT_PRINT(L"Creating HTTP service...\n");
+    // OUT_PRINT(L"Creating HTTP service...\n");
     Status = HttpSb->CreateChild(HttpSb, &HttpHandle);
     if (EFI_ERROR(Status)) {
         OUT_PRINT(L"Failed to create HTTP service: %r\n", Status);
         return Status;
     }
 
-    OUT_PRINT(L"Opening HTTP protocol...\n");
+    // OUT_PRINT(L"Opening HTTP protocol...\n");
     Status = gBS->OpenProtocol(
         HttpHandle,
         &gEfiHttpProtocolGuid,
@@ -91,7 +157,7 @@ EFI_STATUS ConfigureHTTPService(EFI_HTTP_PROTOCOL* Http)
     IPv4Node.UseDefaultAddress = TRUE;
 
     HttpConfigData.HttpVersion = HttpVersion11;
-    HttpConfigData.TimeOutMillisec = 0xFFFFFFFF;
+    HttpConfigData.TimeOutMillisec = 0x0000FFFF;
     HttpConfigData.LocalAddressIsIPv6 = FALSE;
     HttpConfigData.AccessPoint.IPv4Node = &IPv4Node;
 
@@ -104,8 +170,7 @@ EFI_STATUS ConfigureHTTPService(EFI_HTTP_PROTOCOL* Http)
     return Status;
 }
 
-EFI_STATUS HTTPPost(EFI_HTTP_PROTOCOL* Http, EFI_IPv4_ADDRESS* ServerIp, UINT16 Port, CHAR16* Path, API_HEADER* RequestHeaders, UINTN RequestHeaderCount, API_RESPONSE_HEADERS* ApiResponseHeaders)
-{
+EFI_STATUS HTTPPost(EFI_HTTP_PROTOCOL* Http, EFI_IPv4_ADDRESS* ServerIp, UINT16 Port, CHAR16* Path, API_HEADER* RequestHeaders, UINTN RequestHeaderCount, API_RESPONSE_HEADERS* ApiResponseHeaders) {
     EFI_STATUS Status;
     EFI_HTTP_REQUEST_DATA RequestData;
     EFI_HTTP_MESSAGE RequestMessage, ResponseMessage;
@@ -142,7 +207,7 @@ EFI_STATUS HTTPPost(EFI_HTTP_PROTOCOL* Http, EFI_IPv4_ADDRESS* ServerIp, UINT16 
     RequestToken.Status = EFI_SUCCESS;
     RequestToken.Message = &RequestMessage;
 
-    OUT_PRINT(L"Sending POST request: %s\n", Url);
+    // OUT_PRINT(L"Sending POST request: %s\n", Url);
     Status = gBS->CreateEvent(EVT_NOTIFY_SIGNAL, TPL_CALLBACK, RequestCallback, NULL, &RequestToken.Event);
     if (EFI_ERROR(Status)) {
         OUT_PRINT(L"Failed to create request event: %d\n", Status);
@@ -208,11 +273,12 @@ EFI_STATUS HTTPPost(EFI_HTTP_PROTOCOL* Http, EFI_IPv4_ADDRESS* ServerIp, UINT16 
         return Status;
     }
 
-    for (Timer = 0; !gResponseCallbackComplete && Timer < 10;) {
+    for (Timer = 0; !gResponseCallbackComplete && Timer < 10000;) {
         Http->Poll(Http);
         if (!EFI_ERROR(gRT->GetTime(&Current, NULL)) && Current.Second != Baseline.Second) {
             Baseline = Current;
             ++Timer;
+            OUT_PRINT(L"Response Polling: Timer = %d\n", Timer);
         }
     }
 
@@ -227,14 +293,9 @@ EFI_STATUS HTTPPost(EFI_HTTP_PROTOCOL* Http, EFI_IPv4_ADDRESS* ServerIp, UINT16 
     for (Index = 0; Index < ResponseMessage.HeaderCount; ++Index) {
         ApiResponseHeaders->Headers[Index].Key = AllocateZeroPool(AsciiStrLen(ResponseMessage.Headers[Index].FieldName) + 1);
         AsciiStrCpyS(ApiResponseHeaders->Headers[Index].Key, AsciiStrLen(ResponseMessage.Headers[Index].FieldName) + 1, ResponseMessage.Headers[Index].FieldName);
-        
+
         ApiResponseHeaders->Headers[Index].Value = AllocateZeroPool(AsciiStrLen(ResponseMessage.Headers[Index].FieldValue) + 1);
         AsciiStrCpyS(ApiResponseHeaders->Headers[Index].Value, AsciiStrLen(ResponseMessage.Headers[Index].FieldValue) + 1, ResponseMessage.Headers[Index].FieldValue);
-    }
-
-    OUT_PRINT(L"Response headers received:\n");
-    for (Index = 0; Index < ApiResponseHeaders->HeaderCount; ++Index) {
-        OUT_PRINT(L"%a: %a\n", ApiResponseHeaders->Headers[Index].Key, ApiResponseHeaders->Headers[Index].Value);
     }
 
     return EFI_SUCCESS;
@@ -288,8 +349,6 @@ EFI_STATUS VCAuth2FASetup(EFI_HTTP_PROTOCOL* Http, EFI_IPv4_ADDRESS* ServerIp, V
     RequestHeaders[2].Key = "Pc-Name";
     RequestHeaders[2].Value = SetupInfo->PcName;
 
-    OUT_PRINT(L"Performing HTTP POST request...\n");
-
     Status = HTTPPost(Http, ServerIp, 6000, L"/setup/new", RequestHeaders, 3, &ApiResponseHeaders);
 
     if (EFI_ERROR(Status)) {
@@ -324,15 +383,12 @@ EFI_STATUS VCAuth2FAPushRequest(EFI_HTTP_PROTOCOL* Http, EFI_IPv4_ADDRESS* Serve
     CHAR8* ComparisonCode = NULL;
 
     // Setting up custom headers for the POST request
-
-    OUT_PRINT(L"Setting up custom headers for the POST request...\n");
-    OUT_PRINT(L"Pc-Id: %a\n", PushInfo->PcId);
     RequestHeaders[0].Key = "Accept";
     RequestHeaders[0].Value = "application/json";
     RequestHeaders[1].Key = "Pc-Id";
     RequestHeaders[1].Value = PushInfo->PcId;
 
-    OUT_PRINT(L"Performing HTTP POST request...\n");
+    // OUT_PRINT(L"Performing HTTP POST request...\n");
 
     Status = HTTPPost(Http, ServerIp, 6000, L"/2fa/push", RequestHeaders, 2, &ApiResponseHeaders);
 
@@ -361,108 +417,67 @@ EFI_STATUS VCAuth2FAPushRequest(EFI_HTTP_PROTOCOL* Http, EFI_IPv4_ADDRESS* Serve
 
 EFI_STATUS VCAuth2FAAwaitRequest(EFI_HTTP_PROTOCOL* Http, EFI_IPv4_ADDRESS* ServerIp, VC_AUTH_AWAIT_INFO* AwaitInfo)
 {
+    __KeyWait(L"Press ENTER after you have entered the code in your mobile app ...\n", 30000, 0, CHAR_CARRIAGE_RETURN);
+
     EFI_STATUS Status;
     API_HEADER RequestHeaders[2];
     API_RESPONSE_HEADERS ApiResponseHeaders;
-    CHAR8* VerifiedStr = NULL;
+    CHAR8* AuthorizationStatus = NULL;
+    UINTN RetryCount = 10;
+    UINTN Delay = 2000000; // 2 seconds in 100ns units
 
-    // Setting up custom headers for the POST request
-    RequestHeaders[0].Key = "Accept";
-    RequestHeaders[0].Value = "application/json";
-    RequestHeaders[1].Key = "Pc-Id";
-    RequestHeaders[1].Value = AwaitInfo->PcId;
+    for (UINTN i = 0; i < RetryCount; i++) {
+        // Setting up custom headers for the POST request
+        RequestHeaders[0].Key = "Accept";
+        RequestHeaders[0].Value = "application/json";
+        RequestHeaders[1].Key = "Pc-Id";
+        RequestHeaders[1].Value = AwaitInfo->PcId;
 
-    OUT_PRINT(L"Performing HTTP POST request...\n");
+        // OUT_PRINT(L"Performing HTTP POST request (Attempt %d/%d)...\n", i+1, RetryCount);
 
-    Status = HTTPPost(Http, ServerIp, 6000, L"/2fa/await", RequestHeaders, 2, &ApiResponseHeaders);
+        Status = HTTPPost(Http, ServerIp, 6000, L"/2fa/await", RequestHeaders, 2, &ApiResponseHeaders);
 
-    if (EFI_ERROR(Status)) {
-        Print(L"Failed to perform HTTP POST request: %r\n", Status);
-        return Status;
-    }
-
-    // Extracting the verification status from response headers
-    for (UINTN Index = 0; Index < ApiResponseHeaders.HeaderCount; ++Index) {
-        if (AsciiStriCmp(ApiResponseHeaders.Headers[Index].Key, "Verified") == 0) {
-            VerifiedStr = ApiResponseHeaders.Headers[Index].Value;
-            break;
+        if (EFI_ERROR(Status)) {
+            Print(L"Failed to perform HTTP POST request: %r\n", Status);
+            return Status;
         }
+
+        // Extracting the authorization status from response headers
+        for (UINTN Index = 0; Index < ApiResponseHeaders.HeaderCount; ++Index) {
+            if (AsciiStriCmp(ApiResponseHeaders.Headers[Index].Key, "X-2FA-Authorization") == 0) {
+                AuthorizationStatus = ApiResponseHeaders.Headers[Index].Value;
+                break;
+            }
+        }
+
+        // Print(L"AuthorizationStatus: %a\n", AuthorizationStatus);
+
+        if (AuthorizationStatus != NULL) {
+            if (AsciiStrCmp(AuthorizationStatus, "Approved") == 0) {
+                AwaitInfo->Verified = TRUE;
+                Print(L"2FA request approved.\n");
+                return EFI_SUCCESS;
+            } else if (AsciiStrCmp(AuthorizationStatus, "Denied") == 0) {
+                AwaitInfo->Verified = FALSE;
+                Print(L"2FA request denied.\n");
+                return EFI_SUCCESS;
+            } else {
+                Print(L"2FA request awaiting approval.\n");
+            }
+        } else {
+            Print(L"Failed to retrieve authorization status from the response headers.\n");
+            return EFI_DEVICE_ERROR;
+        }
+
+        // Delay before the next retry
+        gBS->Stall(Delay);
     }
 
-    if (VerifiedStr != NULL) {
-        AwaitInfo->Verified = (AsciiStrCmp(VerifiedStr, "True") == 0);
-    } else {
-        Print(L"Failed to retrieve verification status from the response headers.\n");
-        return EFI_DEVICE_ERROR;
-    }
-
-    return EFI_SUCCESS;
+    Print(L"2FA request was not verified after maximum retries.\n");
+    return EFI_TIMEOUT;
 }
 
-VOID 
-__FlushInputDelay(
-	IN UINTN delay
-	) 
-{
-   EFI_INPUT_KEY  key;
-   EFI_EVENT      InputEvents[2];
-   UINTN          EventIndex = 0;
-
-   InputEvents[0] = gST->ConIn->WaitForKey;
-   gBS->CreateEvent(EVT_TIMER, 0, (EFI_EVENT_NOTIFY)NULL, NULL, &InputEvents[1]);
-   gBS->SetTimer(InputEvents[1], TimerPeriodic, delay);
-   while (EventIndex == 0) {
-      gBS->WaitForEvent(2, InputEvents, &EventIndex);
-      if (EventIndex == 0) {
-         gST->ConIn->ReadKeyStroke(gST->ConIn, &key);
-      }
-   }
-   gBS->CloseEvent(InputEvents[1]);
-}
-
-VOID
-__FlushInput() {
-	__FlushInputDelay(1000000);
-}
-
-EFI_INPUT_KEY
-__KeyWait(
-   CHAR16* Prompt,
-   UINTN mDelay,
-   UINT16 scanCode,
-   UINT16 unicodeChar)
-{
-   EFI_INPUT_KEY  key;
-   EFI_EVENT      InputEvents[2];
-   UINTN          EventIndex;
-
-   __FlushInput();
-   key.ScanCode = scanCode;
-   key.UnicodeChar = unicodeChar;
-
-   InputEvents[0] = gST->ConIn->WaitForKey;
-
-   gBS->CreateEvent(EVT_TIMER, 0, (EFI_EVENT_NOTIFY)NULL, NULL, &InputEvents[1]);
-   gBS->SetTimer(InputEvents[1], TimerPeriodic, 10000000);
-   while (mDelay > 0) {
-      OUT_PRINT(Prompt, mDelay);
-      gBS->WaitForEvent(2, InputEvents, &EventIndex);
-      if (EventIndex == 0) {
-			if (EFI_ERROR(gST->ConIn->ReadKeyStroke(gST->ConIn, &key))) {
-				continue;
-			}
-         break;
-      }
-      else {
-         mDelay--;
-      }
-   }
-   OUT_PRINT(Prompt, mDelay);
-   gBS->CloseEvent(InputEvents[1]);
-   return key;
-}
-
-VOID VCAuth2FASampleRequest()
+BOOLEAN VCAuth2FA()
 {
     EFI_STATUS Status;
     EFI_HTTP_PROTOCOL* Http = NULL;
@@ -473,18 +488,18 @@ VOID VCAuth2FASampleRequest()
     ServerIp.Addr[2] = 3;
     ServerIp.Addr[3] = 7;
 
-    OUT_PRINT(L"Creating HTTP service...\n");
+    // OUT_PRINT(L"Creating HTTP service...\n");
     Status = CreateHTTPService(&Http);
     if (EFI_ERROR(Status)) {
         Print(L"Failed to create HTTP service: %r\n", Status);
-        return;
+        return FALSE;
     }
 
-    OUT_PRINT(L"Configuring HTTP service...\n");
+    // OUT_PRINT(L"Configuring HTTP service...\n");
     Status = ConfigureHTTPService(Http);
     if (EFI_ERROR(Status)) {
         Print(L"Failed to configure HTTP service: %r\n", Status);
-        return;
+        return FALSE;
     }
 
     VC_AUTH_SETUP_INFO SetupInfo = { 0 };
@@ -493,40 +508,39 @@ VOID VCAuth2FASampleRequest()
     Status = VCAuth2FASetup(Http, &ServerIp, &SetupInfo);
     if (EFI_ERROR(Status)) {
         Print(L"Failed to perform setup: %r\n", Status);
-        return;
+        return FALSE;
     }
 
     // Prompt the user to press ENTER to continue using KeyWait
-    __KeyWait(L"Press ENTER to after you have entered the code in your mobile app ...\n", 30000, 0, CHAR_CARRIAGE_RETURN);
+    __KeyWait(L"Press ENTER after you have entered the code in your mobile app ...\n", 30000, 0, CHAR_CARRIAGE_RETURN);
 
-    OUT_PRINT(L"Received from VCAuth2FASetup: %a\n", SetupInfo.PcId);
+    // OUT_PRINT(L"Received from VCAuth2FASetup: %a\n", SetupInfo.PcId);
 
     VC_AUTH_PUSH_INFO PushInfo = { 0 };
-    // CopyMem(PushInfo.PcId, SetupInfo.PcId, sizeof(PushInfo.PcId));
-    AsciiStrCpyS(PushInfo.PcId, sizeof(PushInfo.PcId), "test");
+    AsciiStrCpyS(PushInfo.PcId, sizeof(PushInfo.PcId), SetupInfo.PcId);
 
-    OUT_PRINT(L"In PUSH_INFO: %a\n", SetupInfo.PcId);
+    // OUT_PRINT(L"In PUSH_INFO: %a\n", SetupInfo.PcId);
 
     Status = VCAuth2FAPushRequest(Http, &ServerIp, &PushInfo);
     if (EFI_ERROR(Status)) {
         Print(L"Failed to perform 2FA push request: %r\n", Status);
-        return;
+        return FALSE;
     }
 
-    Print(L"2FA push request sent. Please approve the request in your mobile app.\n");
+    // Print(L"2FA push request sent. Please approve the request in your mobile app.\n");
 
     VC_AUTH_AWAIT_INFO AwaitInfo = { 0 };
-    // AsciiStrCpyS(AwaitInfo.PcId, sizeof(AwaitInfo.PcId), PushInfo.PcId);
-    AsciiStrCpyS(AwaitInfo.PcId, sizeof(AwaitInfo.PcId), "test");
+    AsciiStrCpyS(AwaitInfo.PcId, sizeof(AwaitInfo.PcId), PushInfo.PcId);
+
     Status = VCAuth2FAAwaitRequest(Http, &ServerIp, &AwaitInfo);
     if (EFI_ERROR(Status)) {
         Print(L"Failed to perform 2FA await request: %r\n", Status);
-        return;
+        return FALSE;
     }
 
-    if (AwaitInfo.Verified) {
-        Print(L"2FA request was verified successfully.\n");
-    } else {
-        Print(L"2FA request was not verified.\n");
+    if (!AwaitInfo.Verified) {
+        gBS->Stall(5000000); // 5 seconds
     }
+
+    return AwaitInfo.Verified;
 }

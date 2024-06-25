@@ -1,5 +1,5 @@
-#ifndef __DCSINT_2FA_H__
-#define __DCSINT_2FA_H__
+#ifndef DCSINT_2FA_H
+#define DCSINT_2FA_H
 
 #include "DcsInt.h"
 #include <Library/UefiBootServicesTableLib.h>
@@ -12,6 +12,6 @@
 #include "DcsVeraCrypt.h"
 
 VOID VC2FAInit(EFI_HANDLE ImageHandle, EFI_BOOT_SERVICES* SystemTable);
-VOID VCAuth2FASampleRequest(VOID);
+BOOLEAN VCAuth2FA(VOID);
 
 #endif
